@@ -1,0 +1,7 @@
+# Build output
+obj/
+MARBLE.PRG
+
+# Generated from the NES ROM (copyrighted; not distributed)
+MMDATA.BIN
+*.nes
