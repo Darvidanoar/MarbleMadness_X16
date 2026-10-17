@@ -23,6 +23,7 @@
 .export nes_mapper, nes_ppuctrl
 .export x16_zp_mirror, x16_zp_mirror_buf
 .export x16_mouse_take, mouse_e, mouse_d, x16_name_mouse
+.export x16_title_esc, x16_exit, esc_hit
 
 ; ============================================================================
 ; Variables (X16 "golden RAM" $0400-$07FF)
@@ -111,6 +112,19 @@ mouse_btn:      .res 1      ; NES buttons from the mouse buttons (L = A, R = B)
 mouse_e:        .res 1      ; acceleration for this frame along the marble's
 mouse_d:        .res 1      ;   E (down-left) and D (down-right) axes
 
+; quitting to BASIC (Esc on the title screen)
+esc_hit:        .res 1      ; Esc was typed since the title screen was drawn
+saved_bank:     .res 1      ; RAM bank at start-up
+saved_dc:       .res 8      ; VERA DC registers at start-up (DCSEL 0, then DCSEL 1)
+saved_l1:       .res 7      ; VERA layer 1 registers at start-up
+
+; ============================================================================
+; Low RAM above the program
+; ============================================================================
+.segment "BSS"
+
+saved_pal:      .res 512    ; VERA palette at start-up
+
 ; ============================================================================
 ; BASIC stub
 ; ============================================================================
@@ -129,6 +143,8 @@ mouse_d:        .res 1      ;   E (down-left) and D (down-right) axes
 
 start:
         stz     ROM_BANK                ; KERNAL ROM
+        lda     RAM_BANK
+        pha
         ldx     #0
 :       lda     msg_loading,x
         beq     :+
@@ -158,10 +174,23 @@ start:
         jsr     KERNAL_CHROUT
         inx
         bne     :-
-:       rts
+:       pla
+        sta     RAM_BANK
+        rts
 @loaded:
         sei
         jsr     init_vars
+        pla
+        sta     saved_bank
+        ; title screen: PRESS START (messages 6 and 7) one row up, clear of ESC TO EXIT
+        lda     #20                     ; NES bank 2 $B000-$CFFF
+        sta     RAM_BANK
+        lda     #$EB                    ; was $230B
+        sta     WIN($B812)+6
+        sta     WIN($B812)+7
+        lda     #$22
+        sta     WIN($B847)+6
+        sta     WIN($B847)+7
         jsr     mouse_init
         ; remember the KERNAL's zero page and IRQ handler
         ldx     #2
@@ -247,7 +276,43 @@ init_vars:
 
 ; ----------------------------------------------------------------------------
 init_vera:
+        ; remember the display set-up, palette included, for quitting to BASIC
         stz     VERA_CTRL
+        ldx     #0
+:       lda     VERA_DC_VIDEO,x
+        sta     saved_dc,x
+        inx
+        cpx     #4
+        bne     :-
+        lda     #$02                    ; DCSEL=1
+        sta     VERA_CTRL
+        ldx     #0
+:       lda     VERA_DC_HSTART,x
+        sta     saved_dc+4,x
+        inx
+        cpx     #4
+        bne     :-
+        stz     VERA_CTRL
+        ldx     #0
+:       lda     VERA_L1_CONFIG,x
+        sta     saved_l1,x
+        inx
+        cpx     #7
+        bne     :-
+        stz     VERA_ADDR_L
+        lda     #>VRAM_PALETTE
+        sta     VERA_ADDR_M
+        lda     #$11
+        sta     VERA_ADDR_H
+        ldx     #0
+:       lda     VERA_DATA0
+        sta     saved_pal,x
+        inx
+        bne     :-
+:       lda     VERA_DATA0
+        sta     saved_pal+256,x
+        inx
+        bne     :-
         lda     VERA_DC_VIDEO
         and     #$0F                    ; keep output mode, all layers/sprites off
         sta     VERA_DC_VIDEO
@@ -629,6 +694,17 @@ input_scan:
         beq     :+
         jsr     @ps2
 :       jsr     KERNAL_KBDSCAN
+@key:   jsr     KERNAL_GETIN            ; empty the keyboard buffer, looking for Esc
+        tax
+        beq     @keydone
+        cmp     #$1B                    ; Esc
+        beq     :+
+        cmp     #$03                    ; Esc on the X16 keymaps (STOP)
+        bne     @key
+:       lda     #1
+        sta     esc_hit
+        bra     @key
+@keydone:
         jsr     KERNAL_JOYSCAN
         lda     #0
         jsr     KERNAL_JOYGET
@@ -691,6 +767,118 @@ input_scan:
 .endif
         jmp     zp_swap
 @ps2:   jmp     (ps2fetch)
+
+; ----------------------------------------------------------------------------
+; Title screen: "ESC TO EXIT" under PRESS START (bank 0 $843E, rendering is off).
+x16_title_esc:
+        stz     esc_hit                 ; only Esc typed on the title screen counts
+        lda     #$23                    ; PRESS START's palette on rows 22-23 (moved up at start-up)
+        jsr     x16_ppu_w6
+        lda     #$EA
+        jsr     x16_ppu_w6
+        lda     #$F5
+        jsr     x16_ppu_w7
+        lda     #$F0
+        jsr     x16_ppu_w7
+        jsr     x16_ppu_w7
+        jsr     x16_ppu_w7
+        lda     #$23                    ; row 25, column 11: shares PRESS START's palette
+        jsr     x16_ppu_w6
+        lda     #$2B
+        jsr     x16_ppu_w6
+        ldy     #0
+@char:  lda     msg_esc,y
+        beq     @done
+        cmp     #' '
+        beq     :+
+        sec
+        sbc     #$40                    ; letters are tiles 1-26
+        bra     :++
+:       lda     #0
+:       jsr     x16_ppu_w7
+        iny
+        bra     @char
+@done:  rts
+
+msg_esc:
+        .byte   "ESC TO EXIT", 0
+
+; Esc on the title screen: undo the start-up and warm-start BASIC.  Called from
+; the game's frame (inside the VSYNC interrupt), so it never returns.
+x16_exit:
+        sei
+        ; silence the PSG
+        stz     VERA_CTRL
+        lda     #<VRAM_PSG
+        sta     VERA_ADDR_L
+        lda     #>VRAM_PSG
+        sta     VERA_ADDR_M
+        lda     #$11
+        sta     VERA_ADDR_H
+        ldx     #64
+:       stz     VERA_DATA0
+        dex
+        bne     :-
+        ; the display as it was at start-up
+        stz     VERA_ADDR_L
+        lda     #>VRAM_PALETTE
+        sta     VERA_ADDR_M
+        ldx     #0
+:       lda     saved_pal,x
+        sta     VERA_DATA0
+        inx
+        bne     :-
+:       lda     saved_pal+256,x
+        sta     VERA_DATA0
+        inx
+        bne     :-
+        ldx     #0
+:       lda     saved_dc,x
+        sta     VERA_DC_VIDEO,x
+        inx
+        cpx     #4
+        bne     :-
+        lda     #$02                    ; DCSEL=1
+        sta     VERA_CTRL
+        ldx     #0
+:       lda     saved_dc+4,x
+        sta     VERA_DC_HSTART,x
+        inx
+        cpx     #4
+        bne     :-
+        stz     VERA_CTRL
+        ldx     #0
+:       lda     saved_l1,x
+        sta     VERA_L1_CONFIG,x
+        inx
+        cpx     #7
+        bne     :-
+        ; the KERNAL's zero page, IRQ handler and banks
+        ldx     #2
+:       lda     zpsave,x
+        sta     $00,x
+        inx
+        bne     :-
+        lda     old_cinv
+        sta     CINV
+        lda     old_cinv+1
+        sta     CINV+1
+        stz     ROM_BANK
+        lda     saved_bank
+        sta     RAM_BANK
+        ldx     #$FF
+        txs
+        lda     mouse_ok
+        beq     :+
+        sec
+        jsr     KERNAL_SCRMODE          ; X, Y = screen size
+        lda     #0                      ; mouse off
+        jsr     KERNAL_MOUSECFG
+:       lda     #$93                    ; clear the screen
+        jsr     KERNAL_CHROUT
+        cli
+        clc                             ; warm start
+        jmp     KERNAL_ENTER_BASIC
 
 ; ----------------------------------------------------------------------------
 ; Mouse.  The KERNAL's ps2data_fetch (called above through ps2fetch) also polls

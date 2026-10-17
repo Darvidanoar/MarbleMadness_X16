@@ -572,6 +572,7 @@ loc_8422:
         jsr     sub_FC96                ; 843A
         inx                             ; 843D
         jsr     sub_FC96                ; 843E
+        jsr     x16_title_esc           ; X16: draw "ESC TO EXIT"
         lda     #$14                    ; 8441
         sta     attract_timer           ; 8443
         lda     #$04                    ; 8445
@@ -638,6 +639,9 @@ loc_84B5:
         jsr     sub_FC74                ; 84C1
         jsr     sub_FB7C                ; 84C4
         ; was: Select toggles two_players (one player only)
+        lda     esc_hit                 ; X16: Esc quits to BASIC
+        beq     loc_84D3
+        jmp     x16_exit
 loc_84D3:
         lda     joy1_pressed            ; 84D3
         and     #$10                    ; 84D5

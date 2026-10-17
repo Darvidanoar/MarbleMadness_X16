@@ -54,6 +54,11 @@ LICENSED BY NINTENDO) is skipped. The port is single player only: the title scre
 no player-count menu (just PRESS START) and Select does nothing there. Use the mouse (below), the keyboard (the KERNAL keyboard joystick)
 or an SNES controller in port 1.
 
+Press Esc on the title screen (shown as ESC TO EXIT under PRESS START) to quit to BASIC.
+The port puts back the screen, palette, interrupt handler and zero page as they were
+before the game started. RUN STOP (and Ctrl+C) work as well, because they send the same
+code as Esc on X16 keymaps.
+
 | NES      | Keyboard              | SNES pad |
 |----------|-----------------------|----------|
 | D-pad    | cursor keys           | D-pad    |
