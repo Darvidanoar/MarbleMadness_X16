@@ -16,14 +16,6 @@ make X16_DEFS="..."     # same, with extra assembler options (run `make clean` f
 make clean              # remove obj/ and MARBLE.PRG
 ```
 
-Regenerating the sources additionally needs Python 3, `../tools`, and the NES ROM
-`Marble Madness (USA).nes` in the parent directory:
-
-```sh
-./build.sh              # assemble the sources in this directory (same as make)
-./build.sh --regen      # regenerate bank0-3.s, stubs.s, tables.inc, MMDATA.BIN from the ROM first
-```
-
 `bank0.s`-`bank3.s` are the game code converted for the X16. `tools/emit_x16.py` generates
 them from the ROM, using the same analysis as the NES disassembly in `../src`.
 `runtime.s` is the hand-written X16 side. `--regen` overwrites hand edits to the
