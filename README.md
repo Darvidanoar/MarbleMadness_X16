@@ -16,10 +16,8 @@ make X16_DEFS="..."     # same, with extra assembler options (run `make clean` f
 make clean              # remove obj/ and MARBLE.PRG
 ```
 
-`bank0.s`-`bank3.s` are the game code converted for the X16. `tools/emit_x16.py` generates
-them from the ROM, using the same analysis as the NES disassembly in `../src`.
-`runtime.s` is the hand-written X16 side. `--regen` overwrites hand edits to the
-generated files.
+`bank0.s`-`bank3.s` are the game code converted for the X16. 
+`runtime.s` is the hand-written X16 side. 
 
 The build produces two files, which must be kept in the same directory:
 
